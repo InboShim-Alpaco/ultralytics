@@ -1,0 +1,7 @@
+Blur(p=0.01, blur_limit=(3, 7))
+MedianBlur(p=0.01, blur_limit=(3, 7))
+ToGray(p=0.01)
+CLAHE(p=0.01, clip_limit=(1, 4.0), tile_grid_size=(8, 8))
+RandomBrightnessContrast(p=0.0, brightness_limit=(-0.2, 0.2), contrast_limit=(-0.2, 0.2), brightness_by_max=True)
+RandomGamma(p=0.0, gamma_limit=(80, 120))
+ImageCompression(p=0.0, quality_range=(75, 100), compression_type=0)

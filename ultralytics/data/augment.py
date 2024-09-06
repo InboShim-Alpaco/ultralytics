@@ -1836,6 +1836,11 @@ class Albumentations:
                 A.RandomGamma(p=0.0),
                 A.ImageCompression(quality_lower=75, p=0.0),
             ]
+            albumentations_record_file = "./albumentations.txt"
+            
+            with open(albumentations_record_file, 'w') as f:
+                for transformation in T:
+                    f.write(str(transformation) + "\n")
 
             # Compose transforms
             self.contains_spatial = any(transform.__class__.__name__ in spatial_transforms for transform in T)
