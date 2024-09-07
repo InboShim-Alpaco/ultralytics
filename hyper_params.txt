@@ -1,0 +1,8 @@
+<albumentations>
+Blur(p=0.05, blur_limit=(3, 7))
+MedianBlur(p=0.05, blur_limit=(3, 7))
+ToGray(p=0.02)
+CLAHE(p=0.05, clip_limit=(1, 4.0), tile_grid_size=(8, 8))
+ImageCompression(p=0.05, quality_range=(75, 100), compression_type=0)
+BBoxSafeRandomCrop(p=0.2, erosion_rate=0.0)
+SafeRotate(p=0.1, limit=(-15, 15), interpolation=1, border_mode=4, value=None, mask_value=None)

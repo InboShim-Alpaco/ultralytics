@@ -1828,17 +1828,19 @@ class Albumentations:
 
             # Transforms
             T = [
-                A.Blur(p=0.01),
-                A.MedianBlur(p=0.01),
-                A.ToGray(p=0.01),
-                A.CLAHE(p=0.01),
-                A.RandomBrightnessContrast(p=0.0),
-                A.RandomGamma(p=0.0),
-                A.ImageCompression(quality_lower=75, p=0.0),
+                A.Blur(p=0.05),
+                A.MedianBlur(p=0.05),
+                A.ToGray(p=0.02),
+                A.CLAHE(p=0.05),
+                A.ImageCompression(quality_lower=75, p=0.05),
+                A.BBoxSafeRandomCrop(erosion_rate=0.0, p=0.2),
+                A.SafeRotate(limit=(-15, 15), p=0.1)
             ]
-            albumentations_record_file = "./albumentations.txt"
+            
+            albumentations_record_file = "./hyper_params.txt"
             
             with open(albumentations_record_file, 'w') as f:
+                f.write("<albumentations>\n")
                 for transformation in T:
                     f.write(str(transformation) + "\n")
 
@@ -2316,6 +2318,7 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
             RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
             RandomFlip(direction="vertical", p=hyp.flipud),
             RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),
+            LetterBox(new_shape=(imgsz, imgsz))
         ]
     )  # transforms
 
