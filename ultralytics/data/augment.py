@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import torch
 from PIL import Image
+import os
 
 from ultralytics.data.utils import polygons2masks, polygons2masks_overlap
 from ultralytics.utils import LOGGER, colorstr
@@ -1529,6 +1530,7 @@ class LetterBox:
         self.scaleup = scaleup
         self.stride = stride
         self.center = center  # Put the image in the middle or top-left
+        self.save_img_cnt = 0
 
     def __call__(self, labels=None, image=None):
         """
@@ -1559,6 +1561,9 @@ class LetterBox:
         new_shape = labels.pop("rect_shape", self.new_shape)
         if isinstance(new_shape, int):
             new_shape = (new_shape, new_shape)
+
+        if labels.get("instances"):
+            self.save_image(img.copy(), labels["instances"].bboxes, "before_letterbox")
 
         # Scale ratio (new / old)
         r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
@@ -1594,9 +1599,36 @@ class LetterBox:
             labels = self._update_labels(labels, ratio, dw, dh)
             labels["img"] = img
             labels["resized_shape"] = new_shape
+
+             # 증강 후 이미지 저장
+            self.save_image(img.copy(), labels["instances"].bboxes, "after_letterbox")
+            
             return labels
         else:
             return img
+
+    def save_image(self, image, bboxes, prefix):
+        """이미지를 저장하는 함수 (YOLO 형식의 바운딩 박스를 절대 좌표로 변환)"""
+        os.makedirs("../check_images", exist_ok=True)
+        height, width = image.shape[:2]  # 이미지 크기
+        
+        # 바운딩 박스를 절대 좌표로 변환하고 그리기
+        for bbox in bboxes:
+            x_center, y_center, box_width, box_height = bbox
+            x_center *= width
+            y_center *= height
+            box_width *= width
+            box_height *= height
+            
+            start_point = (int(x_center - box_width / 2), int(y_center - box_height / 2))
+            end_point = (int(x_center + box_width / 2), int(y_center + box_height / 2))
+            cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
+        
+        # 이미지 저장
+        filename = f"../check_images/{self.save_img_cnt:04d}-{prefix}.jpg"
+        cv2.imwrite(filename, image)
+        self.save_img_cnt += 1
+
 
     def _update_labels(self, labels, ratio, padw, padh):
         """
@@ -1776,6 +1808,7 @@ class Albumentations:
         self.p = p
         self.transform_in = None
         self.transform_out = None
+        self.save_img_cnt = 0
         prefix = colorstr("albumentations: ")
 
         try:
@@ -1835,7 +1868,7 @@ class Albumentations:
                 A.ToGray(p=0.02),
                 A.CLAHE(p=0.05),
                 A.ImageCompression(quality_lower=75, p=0.05),
-                A.BBoxSafeRandomCrop(erosion_rate=0.0, p=0.5),
+                A.BBoxSafeRandomCrop(erosion_rate=0.0, p=0.8),
                 #A.PadIfNeeded(min_height=640, min_width=640, p=1.0),
                 A.SafeRotate(limit=(-15, 15), p=0.1)
             ]
@@ -1846,7 +1879,7 @@ class Albumentations:
                 A.ToGray(p=0.02),
                 A.CLAHE(p=0.05),
                 A.ImageCompression(quality_lower=75, p=0.05),
-                A.Resize(height=320, width=320, p=0.5),
+                A.Resize(height=320, width=320, p=0.8),
                 #A.SmallestMaxSize(max_size=320, p=0.5),
                 #A.PadIfNeeded(min_height=640, min_width=640, value=(255, 255, 255), p=1.0),
                 A.SafeRotate(limit=(-15, 15), p=0.1)
@@ -1880,6 +1913,28 @@ class Albumentations:
         except Exception as e:
             LOGGER.info(f"{prefix}{e}")
 
+    def save_image(self, image, bboxes, prefix):
+        """이미지를 저장하는 함수 (YOLO 형식의 바운딩 박스를 절대 좌표로 변환)"""
+        os.makedirs("../check_images", exist_ok=True)
+        height, width = image.shape[:2]  # 이미지 크기
+        
+        # 바운딩 박스를 절대 좌표로 변환하고 그리기
+        for bbox in bboxes:
+            x_center, y_center, box_width, box_height = bbox
+            x_center *= width
+            y_center *= height
+            box_width *= width
+            box_height *= height
+            
+            start_point = (int(x_center - box_width / 2), int(y_center - box_height / 2))
+            end_point = (int(x_center + box_width / 2), int(y_center + box_height / 2))
+            cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
+        
+        # 이미지 저장
+        filename = f"../check_images/{self.save_img_cnt:04d}-{prefix}.jpg"
+        cv2.imwrite(filename, image)
+        self.save_img_cnt += 1
+        
     def __call__(self, labels):
         """
         Applies Albumentations transformations to input labels.
@@ -1930,6 +1985,9 @@ class Albumentations:
                 
             
                 avg_area = np.mean(bboxes_area) if len(bboxes_area) > 0 else 0
+
+                # 증강 전 이미지 저장
+                self.save_image(im.copy(), bboxes, "before_albumentation")
     
                 if avg_area < 0.3:  # 작은 객체
                     with open("./albumentation_transformation.txt", 'a') as f:
@@ -1950,7 +2008,10 @@ class Albumentations:
                     with open("./albumentation_error.txt", 'a') as f:
                         f.write(f"bboxes:{bboxes}\n")
                     new = self.transform_out(image=im, bboxes=bboxes, class_labels=cls)  # transformed
-                labels["instances"].update(bboxes=bboxes)
+                    labels["instances"].update(bboxes=bboxes)
+
+                # 증강 후 이미지 저장
+                self.save_image(new["image"].copy(), new["bboxes"], "after_albumentation")
         else:
             labels["img"] = self.transform(image=labels["img"])["image"]  # transformed
 
