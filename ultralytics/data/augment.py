@@ -22,7 +22,7 @@ from ultralytics.utils.torch_utils import TORCHVISION_0_10, TORCHVISION_0_11, TO
 DEFAULT_MEAN = (0.0, 0.0, 0.0)
 DEFAULT_STD = (1.0, 1.0, 1.0)
 DEFAULT_CROP_FRACTION = 1.0
-
+save_img_cnt = 0
 
 class BaseTransform:
     """
@@ -1471,8 +1471,6 @@ class RandomFlip:
         labels["img"] = np.ascontiguousarray(img)
         labels["instances"] = instances
         return labels
-
-
 class LetterBox:
     """
     Resize image and padding for detection, instance segmentation, pose.
@@ -1530,7 +1528,6 @@ class LetterBox:
         self.scaleup = scaleup
         self.stride = stride
         self.center = center  # Put the image in the middle or top-left
-        self.save_img_cnt = 0
 
     def __call__(self, labels=None, image=None):
         """
@@ -1561,9 +1558,6 @@ class LetterBox:
         new_shape = labels.pop("rect_shape", self.new_shape)
         if isinstance(new_shape, int):
             new_shape = (new_shape, new_shape)
-
-        if labels.get("instances"):
-            self.save_image(img.copy(), labels["instances"].bboxes, "before_letterbox", True)
 
         # Scale ratio (new / old)
         r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
@@ -1599,37 +1593,9 @@ class LetterBox:
             labels = self._update_labels(labels, ratio, dw, dh)
             labels["img"] = img
             labels["resized_shape"] = new_shape
-
-             # 증강 후 이미지 저장
-            self.save_image(img.copy(), labels["instances"].bboxes, "after_letterbox")
-            
             return labels
         else:
             return img
-
-    def save_image(self, image, bboxes, prefix, add_cnt = False):
-        """이미지를 저장하는 함수 (YOLO 형식의 바운딩 박스를 절대 좌표로 변환)"""
-        os.makedirs("../check_images", exist_ok=True)
-        height, width = image.shape[:2]  # 이미지 크기
-        
-        # 바운딩 박스를 절대 좌표로 변환하고 그리기
-        for bbox in bboxes:
-            x_center, y_center, box_width, box_height = bbox
-            x_center *= width
-            y_center *= height
-            box_width *= width
-            box_height *= height
-            
-            start_point = (int(x_center - box_width / 2), int(y_center - box_height / 2))
-            end_point = (int(x_center + box_width / 2), int(y_center + box_height / 2))
-            cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
-        
-        # 이미지 저장
-        filename = f"../check_images/{self.save_img_cnt:04d}-{prefix}.jpg"
-        cv2.imwrite(filename, image)
-        if add_cnt:
-            self.save_img_cnt += 1
-
 
     def _update_labels(self, labels, ratio, padw, padh):
         """
@@ -1661,6 +1627,8 @@ class LetterBox:
         return labels
 
 
+
+            
 class CopyPaste:
     """
     Implements Copy-Paste augmentation as described in https://arxiv.org/abs/2012.07177.
@@ -1775,7 +1743,7 @@ class Albumentations:
         - Spatial transforms are handled differently and require special processing for bounding boxes.
     """
 
-    def __init__(self, p=1.0):
+    def __init__(self, p=1.0, imgsz=640):
         """
         Initialize the Albumentations transform object for YOLO bbox formatted parameters.
 
@@ -1809,7 +1777,6 @@ class Albumentations:
         self.p = p
         self.transform_in = None
         self.transform_out = None
-        self.save_img_cnt = 0
         prefix = colorstr("albumentations: ")
 
         try:
@@ -1869,7 +1836,7 @@ class Albumentations:
                 A.ToGray(p=0.02),
                 A.CLAHE(p=0.05),
                 A.ImageCompression(quality_lower=75, p=0.05),
-                A.BBoxSafeRandomCrop(erosion_rate=0.0, p=0.8),
+                #A.BBoxSafeRandomCrop(erosion_rate=0.0, p=0.5),
                 #A.PadIfNeeded(min_height=640, min_width=640, p=1.0),
                 A.SafeRotate(limit=(-15, 15), p=0.1)
             ]
@@ -1880,7 +1847,7 @@ class Albumentations:
                 A.ToGray(p=0.02),
                 A.CLAHE(p=0.05),
                 A.ImageCompression(quality_lower=75, p=0.05),
-                A.Resize(height=320, width=320, p=0.8),
+                A.Resize(height=imgsz//2, width=imgsz//2, p=0.8),
                 #A.SmallestMaxSize(max_size=320, p=0.5),
                 #A.PadIfNeeded(min_height=640, min_width=640, value=(255, 255, 255), p=1.0),
                 A.SafeRotate(limit=(-15, 15), p=0.1)
@@ -1914,7 +1881,8 @@ class Albumentations:
         except Exception as e:
             LOGGER.info(f"{prefix}{e}")
 
-    def save_image(self, image, bboxes, prefix, add_cnt = False):
+    def save_image(self, image, bboxes, prefix):
+        global save_img_cnt
         """이미지를 저장하는 함수 (YOLO 형식의 바운딩 박스를 절대 좌표로 변환)"""
         os.makedirs("../check_images", exist_ok=True)
         height, width = image.shape[:2]  # 이미지 크기
@@ -1932,11 +1900,9 @@ class Albumentations:
             cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
         
         # 이미지 저장
-        filename = f"../check_images/{self.save_img_cnt:04d}-{prefix}.jpg"
+        filename = f"../check_images/{save_img_cnt:04d}-{prefix}.jpg"
         cv2.imwrite(filename, image)
         
-        if add_cnt:
-            self.save_img_cnt += 1
         
     def __call__(self, labels):
         """
@@ -1973,6 +1939,8 @@ class Albumentations:
             return labels
 
         if self.contains_spatial:
+            global save_img_cnt
+            save_img_cnt += 1
             cls = labels["cls"]
             if len(cls):
                 im = labels["img"]
@@ -1990,7 +1958,7 @@ class Albumentations:
                 avg_area = np.mean(bboxes_area) if len(bboxes_area) > 0 else 0
 
                 # 증강 전 이미지 저장
-                self.save_image(im.copy(), bboxes, "before_albumentation", True)
+                self.save_image(im.copy(), bboxes, "before_albumentation")
     
                 if avg_area < 0.3:  # 작은 객체
                     with open("./albumentation_transformation.txt", 'a') as f:
@@ -2002,19 +1970,16 @@ class Albumentations:
                         f.write(f"bboxes:{bboxes} avg_area:{avg_area} transform:out\n")
                     new = self.transform_out(image=im, bboxes=bboxes, class_labels=cls)  # transformed
                     
-                        
+                # 증강 후 이미지 저장
+                self.save_image(new["image"].copy(), new["bboxes"], "after_albumentation")        
                 
                 if len(new["class_labels"]) > 0:  # skip update if no bbox in new im
                     labels["img"] = new["image"]
                     labels["cls"] = np.array(new["class_labels"])
                     bboxes = np.array(new["bboxes"], dtype=np.float32)
-                    with open("./albumentation_error.txt", 'a') as f:
-                        f.write(f"bboxes:{bboxes}\n")
-                    new = self.transform_out(image=im, bboxes=bboxes, class_labels=cls)  # transformed
-                    labels["instances"].update(bboxes=bboxes)
-
-                # 증강 후 이미지 저장
-                self.save_image(new["image"].copy(), new["bboxes"], "after_albumentation")
+                labels["instances"].update(bboxes=bboxes)
+            
+                
         else:
             labels["img"] = self.transform(image=labels["img"])["image"]  # transformed
 
@@ -2408,7 +2373,7 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
                 scale=hyp.scale,
                 shear=hyp.shear,
                 perspective=hyp.perspective,
-                pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
+                pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz))
             ),
         ]
     )
@@ -2425,7 +2390,8 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         [
             pre_transform,
             MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
-            Albumentations(p=1.0),
+            Albumentations(p=1.0, imgsz = imgsz),
+            CustomPadAndBboxTransform(),
             RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
             RandomFlip(direction="vertical", p=hyp.flipud),
             RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),
@@ -2433,7 +2399,90 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         ]
     )  # transforms
 
+class CustomPadAndBboxTransform:
+    def __init__(self, new_shape=(640, 640), value=(114, 114, 114)):
+        """
+        Custom transformation to apply padding without resizing.
+        :param new_shape: 타겟 크기 (예: 640x640), 이미지가 이 크기보다 작을 경우 패딩을 추가
+        :param value: 패딩에 사용할 색상 값 (114, 114, 114)
+        """
+        self.new_shape = new_shape
+        self.value = value
 
+    def __call__(self, labels):
+        """
+        Albumentations와 동일한 형식의 입력을 받아 처리하는 __call__ 함수.
+        :param labels: A dictionary containing image and annotations.
+            - 'img': 이미지 (numpy 배열)
+            - 'cls': 클래스 레이블 (numpy 배열)
+            - 'instances': 바운딩 박스를 포함한 객체 정보
+        :return: 변환된 이미지와 바운딩 박스가 포함된 labels 딕셔너리
+        """
+        im = labels["img"]
+        bboxes = labels["instances"].bboxes
+        shape = im.shape[:2]  # 현재 이미지 크기 [height, width]
+
+        # 현재 크기가 new_shape보다 작은 경우에만 패딩 적용
+        if shape[0] < self.new_shape[0] or shape[1] < self.new_shape[1]:
+            dh = max(self.new_shape[0] - shape[0], 0)  # 세로 방향으로 필요한 패딩
+            dw = max(self.new_shape[1] - shape[1], 0)  # 가로 방향으로 필요한 패딩
+
+            # 패딩을 좌우 및 상하로 균등하게 추가
+            top, bottom = dh // 2, dh - (dh // 2)
+            left, right = dw // 2, dw - (dw // 2)
+            self.save_image(im.copy(), bboxes, "before_padding")
+            # 이미지에 패딩 적용
+            img_padded = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=self.value)
+            padded_shape = img_padded.shape[:2]
+            # 바운딩 박스 좌표도 패딩에 맞게 이동
+            bboxes_transformed = self._update_bboxes(bboxes, left, top, shape, padded_shape)
+
+            # 변환된 이미지를 labels에 업데이트
+            labels['img'] = img_padded
+            labels['instances'].update(bboxes=bboxes_transformed)
+            self.save_image(img_padded.copy(), bboxes_transformed, "after_padding")
+
+        return labels
+
+    def _update_bboxes(self, bboxes, left, top, ori_shape, padded_shape):
+        # 바운딩 박스 좌표 변환 (YOLO 형식: x_center, y_center, w, h)
+        for i, bbox in enumerate(bboxes):
+            # YOLO 형식: (x_center, y_center, w, h)
+            x_center, y_center, width, height = bbox
+    
+            # 중심 좌표를 패딩 후 크기에 맞게 변환 (비율 조정)
+            bbox[0] = (x_center * ori_shape[1] + left) / padded_shape[1]  # x_center
+            bbox[1] = (y_center * ori_shape[0] + top) / padded_shape[0]  # y_center
+    
+            # 너비와 높이는 비율 그대로 유지
+            bbox[2] = width * ori_shape[1] / padded_shape[1]  # width
+            bbox[3] = height * ori_shape[0] / padded_shape[0]  # height
+    
+        return bboxes
+
+    def save_image(self, image, bboxes, prefix):
+        global save_img_cnt
+        """이미지를 저장하는 함수 (YOLO 형식의 바운딩 박스를 절대 좌표로 변환)"""
+        os.makedirs("../check_images", exist_ok=True)
+        height, width = image.shape[:2]  # 이미지 크기
+        
+        # 바운딩 박스를 절대 좌표로 변환하고 그리기
+        for bbox in bboxes:
+            x_center, y_center, box_width, box_height = bbox
+            x_center *= width
+            y_center *= height
+            box_width *= width
+            box_height *= height
+            
+            start_point = (int(x_center - box_width / 2), int(y_center - box_height / 2))
+            end_point = (int(x_center + box_width / 2), int(y_center + box_height / 2))
+            cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
+        
+        # 이미지 저장
+        filename = f"../check_images/{save_img_cnt:04d}-{prefix}.jpg"
+        cv2.imwrite(filename, image)
+
+        
 # Classification augmentations -----------------------------------------------------------------------------------------
 def classify_transforms(
     size=224,
