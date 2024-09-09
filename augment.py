@@ -1774,8 +1774,7 @@ class Albumentations:
             - Some transforms are applied with very low probability (0.01) by default.
         """
         self.p = p
-        self.transform_in = None
-        self.transform_out = None
+        self.transform = None
         prefix = colorstr("albumentations: ")
 
         try:
@@ -1827,54 +1826,32 @@ class Albumentations:
                 "XYMasking",
             }  # from https://albumentations.ai/docs/getting_started/transforms_and_targets/#spatial-level-transforms
 
-            
             # Transforms
-            T_in = [
+            T = [
                 A.Blur(p=0.05),
                 A.MedianBlur(p=0.05),
                 A.ToGray(p=0.02),
                 A.CLAHE(p=0.05),
                 A.ImageCompression(quality_lower=75, p=0.05),
-                A.BBoxSafeRandomCrop(erosion_rate=0.0, p=0.5),
-                #A.PadIfNeeded(min_height=640, min_width=640, p=1.0),
+                A.BBoxSafeRandomCrop(erosion_rate=0.0, p=0.2),
                 A.SafeRotate(limit=(-15, 15), p=0.1)
             ]
-
-            T_out = [
-                A.Blur(p=0.05),
-                A.MedianBlur(p=0.05),
-                A.ToGray(p=0.02),
-                A.CLAHE(p=0.05),
-                A.ImageCompression(quality_lower=75, p=0.05),
-                A.Resize(height=320, width=320, p=0.5),
-                #A.SmallestMaxSize(max_size=320, p=0.5),
-                #A.PadIfNeeded(min_height=640, min_width=640, value=(255, 255, 255), p=1.0),
-                A.SafeRotate(limit=(-15, 15), p=0.1)
-            ]
-
             
             albumentations_record_file = "./hyper_params.txt"
             
             with open(albumentations_record_file, 'w') as f:
-                f.write("<albumentations_zoom_in>\n")
-                for transformation in T_in:
+                f.write("<albumentations>\n")
+                for transformation in T:
                     f.write(str(transformation) + "\n")
-                    
-                f.write("<albumentations_zoom_out>\n")
-                for transformation in T_out:
-                    f.write(str(transformation) + "\n")
- 
-            with open("./albumentation_transformation.txt", 'w') as f:
-                f.write(f"---transformation record---\n")
-                
-            # Compose transforms
-            #self.contains_spatial = any(transform.__class__.__name__ in spatial_transforms for transform in T_in)
-            self.contains_spatial = True
-            self.transform_in = A.Compose(T_in, bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
-            LOGGER.info(prefix + ", ".join(f"{x}".replace("always_apply=False, ", "") for x in T_in if x.p))
 
-            self.transform_out = A.Compose(T_out, bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
-            LOGGER.info(prefix + ", ".join(f"{x}".replace("always_apply=False, ", "") for x in T_out if x.p))
+            # Compose transforms
+            self.contains_spatial = any(transform.__class__.__name__ in spatial_transforms for transform in T)
+            self.transform = (
+                A.Compose(T, bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
+                if self.contains_spatial
+                else A.Compose(T)
+            )
+            LOGGER.info(prefix + ", ".join(f"{x}".replace("always_apply=False, ", "") for x in T if x.p))
         except ImportError:  # package not installed, skip
             pass
         except Exception as e:
@@ -1911,7 +1888,7 @@ class Albumentations:
             - Spatial transforms update bounding boxes, while non-spatial transforms only modify the image.
             - Requires the Albumentations library to be installed.
         """
-        if random.random() > self.p:
+        if self.transform is None or random.random() > self.p:
             return labels
 
         if self.contains_spatial:
@@ -1922,40 +1899,16 @@ class Albumentations:
                 labels["instances"].normalize(*im.shape[:2][::-1])
                 bboxes = labels["instances"].bboxes
                 # TODO: add supports of segments and keypoints
-                
-                # 바운딩 박스 크기에 따른 확대/축소 적용
-               
-                    
-                bboxes_area = np.array([w * h for (x, y, w, h) in bboxes])
-                
-            
-                avg_area = np.mean(bboxes_area) if len(bboxes_area) > 0 else 0
-    
-                if avg_area < 0.3:  # 작은 객체
-                    with open("./albumentation_transformation.txt", 'a') as f:
-                        f.write(f"bboxes:{bboxes} avg_area:{avg_area} transform:in\n")
-                    new = self.transform_in(image=im, bboxes=bboxes, class_labels=cls)  # transformed
-                    
-                else:  # 큰 객체
-                    with open("./albumentation_transformation.txt", 'a') as f:
-                        f.write(f"bboxes:{bboxes} avg_area:{avg_area} transform:out\n")
-                    new = self.transform_out(image=im, bboxes=bboxes, class_labels=cls)  # transformed
-                    
-                        
-                
+                new = self.transform(image=im, bboxes=bboxes, class_labels=cls)  # transformed
                 if len(new["class_labels"]) > 0:  # skip update if no bbox in new im
                     labels["img"] = new["image"]
                     labels["cls"] = np.array(new["class_labels"])
                     bboxes = np.array(new["bboxes"], dtype=np.float32)
-                    with open("./albumentation_error.txt", 'a') as f:
-                        f.write(f"bboxes:{bboxes}\n")
-                    new = self.transform_out(image=im, bboxes=bboxes, class_labels=cls)  # transformed
                 labels["instances"].update(bboxes=bboxes)
         else:
             labels["img"] = self.transform(image=labels["img"])["image"]  # transformed
 
         return labels
-
 
 
 class Format:
