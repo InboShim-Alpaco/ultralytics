@@ -1563,7 +1563,7 @@ class LetterBox:
             new_shape = (new_shape, new_shape)
 
         if labels.get("instances"):
-            self.save_image(img.copy(), labels["instances"].bboxes, "before_letterbox")
+            self.save_image(img.copy(), labels["instances"].bboxes, "before_letterbox", True)
 
         # Scale ratio (new / old)
         r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
@@ -1607,7 +1607,7 @@ class LetterBox:
         else:
             return img
 
-    def save_image(self, image, bboxes, prefix):
+    def save_image(self, image, bboxes, prefix, add_cnt = False):
         """이미지를 저장하는 함수 (YOLO 형식의 바운딩 박스를 절대 좌표로 변환)"""
         os.makedirs("../check_images", exist_ok=True)
         height, width = image.shape[:2]  # 이미지 크기
@@ -1627,7 +1627,8 @@ class LetterBox:
         # 이미지 저장
         filename = f"../check_images/{self.save_img_cnt:04d}-{prefix}.jpg"
         cv2.imwrite(filename, image)
-        self.save_img_cnt += 1
+        if add_cnt:
+            self.save_img_cnt += 1
 
 
     def _update_labels(self, labels, ratio, padw, padh):
@@ -1913,7 +1914,7 @@ class Albumentations:
         except Exception as e:
             LOGGER.info(f"{prefix}{e}")
 
-    def save_image(self, image, bboxes, prefix):
+    def save_image(self, image, bboxes, prefix, add_cnt = False):
         """이미지를 저장하는 함수 (YOLO 형식의 바운딩 박스를 절대 좌표로 변환)"""
         os.makedirs("../check_images", exist_ok=True)
         height, width = image.shape[:2]  # 이미지 크기
@@ -1933,7 +1934,9 @@ class Albumentations:
         # 이미지 저장
         filename = f"../check_images/{self.save_img_cnt:04d}-{prefix}.jpg"
         cv2.imwrite(filename, image)
-        self.save_img_cnt += 1
+        
+        if add_cnt:
+            self.save_img_cnt += 1
         
     def __call__(self, labels):
         """
@@ -1987,7 +1990,7 @@ class Albumentations:
                 avg_area = np.mean(bboxes_area) if len(bboxes_area) > 0 else 0
 
                 # 증강 전 이미지 저장
-                self.save_image(im.copy(), bboxes, "before_albumentation")
+                self.save_image(im.copy(), bboxes, "before_albumentation", True)
     
                 if avg_area < 0.3:  # 작은 객체
                     with open("./albumentation_transformation.txt", 'a') as f:
